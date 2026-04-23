@@ -345,12 +345,11 @@ class BanchoLobby(AsyncIOEventEmitter):
             self.emit("startTimerTick", {"seconds": int(m.group(1))})
 
         elif m := _RE_TIMER_STARTED.match(text):
+            self.emit("startTimerStarted", int(m.group(1)))
             self.emit("timerTick", {"seconds": int(m.group(1))})
 
-        elif text == "Aborted the match start timer":
+        elif text in ("Aborted the match start timer", "Countdown aborted"):
             self.emit("startTimerAborted")
-
-        elif text == "Countdown aborted":
             self.emit("timerAborted")
 
         elif text == "Countdown finished":
