@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock
 
-from bancho import BanchoClient, ConnectStates
+from bancho import BanchoClient, BanchoChannel, BanchoMultiplayerChannel, BanchoUser, ConnectStates, ChannelMessage, PrivateMessage
 from bancho.client import _parse_irc_line
 
 
@@ -139,7 +139,24 @@ class TestBanchoClientDispatch:
 
         await client._dispatch_line(":player1!cho@ppy.sh PRIVMSG testbot :hey bot")
 
-        assert received == [{"user": "player1", "message": "hey bot"}]
+        assert len(received) == 1
+        msg = received[0]
+        assert isinstance(msg, PrivateMessage)
+        assert msg.user.username == "player1"
+        assert msg.message == "hey bot"
+
+    async def test_pm_also_emitted_on_user(self):
+        client = self.make_client()
+        received = []
+
+        await client._dispatch_line(":player1!cho@ppy.sh PRIVMSG testbot :hey")
+        user = client.get_user("player1")
+        user.on("message", received.append)
+
+        await client._dispatch_line(":player1!cho@ppy.sh PRIVMSG testbot :second message")
+
+        assert len(received) == 1
+        assert received[0].message == "second message"
 
     async def test_pm_username_match_is_case_insensitive(self):
         client = self.make_client()
@@ -157,7 +174,7 @@ class TestBanchoClientDispatch:
 
         await client._dispatch_line(":player1!cho@ppy.sh PRIVMSG testbot :hello world how are you")
 
-        assert received[0]["message"] == "hello world how are you"
+        assert received[0].message == "hello world how are you"
 
     async def test_cm_event(self):
         client = self.make_client()
@@ -166,7 +183,23 @@ class TestBanchoClientDispatch:
 
         await client._dispatch_line(":player1!cho@ppy.sh PRIVMSG #osu :hello channel")
 
-        assert received == [{"channel": "#osu", "user": "player1", "message": "hello channel"}]
+        assert len(received) == 1
+        msg = received[0]
+        assert isinstance(msg, ChannelMessage)
+        assert msg.user.username == "player1"
+        assert msg.channel.name == "#osu"
+        assert msg.message == "hello channel"
+
+    async def test_cm_also_emitted_on_channel(self):
+        client = self.make_client()
+        received = []
+        channel = client.get_channel("#osu")
+        channel.on("message", received.append)
+
+        await client._dispatch_line(":player1!cho@ppy.sh PRIVMSG #osu :hello")
+
+        assert len(received) == 1
+        assert isinstance(received[0], ChannelMessage)
 
     async def test_cm_not_emitted_for_pm(self):
         client = self.make_client()
@@ -193,16 +226,53 @@ class TestBanchoClientDispatch:
 
         await client._dispatch_line(":player1!cho@ppy.sh JOIN :#mp_12345")
 
-        assert received == [{"channel": "#mp_12345", "user": "player1"}]
+        assert len(received) == 1
+        ev = received[0]
+        assert isinstance(ev["channel"], BanchoMultiplayerChannel)
+        assert ev["channel"].name == "#mp_12345"
+        assert isinstance(ev["user"], BanchoUser)
+        assert ev["user"].username == "player1"
+
+    async def test_join_adds_member_to_channel(self):
+        client = self.make_client()
+
+        await client._dispatch_line(":player1!cho@ppy.sh JOIN :#osu")
+
+        channel = client.get_channel("#osu")
+        assert "player1" in channel.members
+
+    async def test_join_also_emitted_on_channel(self):
+        client = self.make_client()
+        received = []
+        channel = client.get_channel("#osu")
+        channel.on("JOIN", received.append)
+
+        await client._dispatch_line(":player1!cho@ppy.sh JOIN :#osu")
+
+        assert len(received) == 1
+        assert isinstance(received[0], BanchoUser)
 
     async def test_part_event(self):
         client = self.make_client()
         received = []
         client.on("PART", received.append)
 
+        await client._dispatch_line(":player1!cho@ppy.sh JOIN :#osu")
         await client._dispatch_line(":player1!cho@ppy.sh PART #osu :leaving")
 
-        assert received == [{"channel": "#osu", "user": "player1"}]
+        assert len(received) == 1
+        ev = received[0]
+        assert ev["channel"].name == "#osu"
+        assert ev["user"].username == "player1"
+
+    async def test_part_removes_member_from_channel(self):
+        client = self.make_client()
+
+        await client._dispatch_line(":player1!cho@ppy.sh JOIN :#osu")
+        await client._dispatch_line(":player1!cho@ppy.sh PART #osu")
+
+        channel = client.get_channel("#osu")
+        assert "player1" not in channel.members
 
     async def test_quit_event(self):
         client = self.make_client()
@@ -211,7 +281,11 @@ class TestBanchoClientDispatch:
 
         await client._dispatch_line(":player1!cho@ppy.sh QUIT :disconnected")
 
-        assert received == [{"user": "player1", "message": "disconnected"}]
+        assert len(received) == 1
+        ev = received[0]
+        assert isinstance(ev["user"], BanchoUser)
+        assert ev["user"].username == "player1"
+        assert ev["message"] == "disconnected"
 
     async def test_quit_without_message(self):
         client = self.make_client()
@@ -220,7 +294,17 @@ class TestBanchoClientDispatch:
 
         await client._dispatch_line(":player1!cho@ppy.sh QUIT")
 
-        assert received == [{"user": "player1", "message": None}]
+        assert received[0]["message"] is None
+
+    async def test_quit_removes_user_from_all_channels(self):
+        client = self.make_client()
+
+        await client._dispatch_line(":player1!cho@ppy.sh JOIN :#osu")
+        await client._dispatch_line(":player1!cho@ppy.sh JOIN :#mp_1")
+        await client._dispatch_line(":player1!cho@ppy.sh QUIT")
+
+        assert "player1" not in client.get_channel("#osu").members
+        assert "player1" not in client.get_channel("#mp_1").members
 
     async def test_nouser_event(self):
         client = self.make_client()

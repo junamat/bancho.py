@@ -1,7 +1,10 @@
 import asyncio
 from pyee.asyncio import AsyncIOEventEmitter
 
+from .channel import BanchoChannel, BanchoChannelMember, BanchoMultiplayerChannel
 from .enums import ConnectStates
+from .messages import ChannelMessage, PrivateMessage
+from .user import BanchoUser
 
 BANCHO_HOST = "irc.ppy.sh"
 BANCHO_PORT = 6667
@@ -39,11 +42,11 @@ class BanchoClient(AsyncIOEventEmitter):
         disconnected: Emitted when the connection closes.
         state (ConnectStates): Emitted on every state change.
         error (Exception): Emitted on unrecoverable errors.
-        PM (dict): Emitted on private message. Keys: user, message.
-        CM (dict): Emitted on channel message. Keys: channel, user, message.
-        JOIN (dict): Emitted when a user joins a channel. Keys: channel, user.
-        PART (dict): Emitted when a user leaves a channel. Keys: channel, user.
-        QUIT (dict): Emitted when a user disconnects. Keys: user, message.
+        PM (PrivateMessage): Emitted on private message.
+        CM (ChannelMessage): Emitted on channel message.
+        JOIN (dict): Emitted when a user joins a channel. Keys: channel (BanchoChannel), user (BanchoUser).
+        PART (dict): Emitted when a user leaves a channel. Keys: channel (BanchoChannel), user (BanchoUser).
+        QUIT (dict): Emitted when a user disconnects. Keys: user (BanchoUser), message (str | None).
         nochannel (str): Emitted when a channel doesn't exist.
         nouser (str): Emitted when a user doesn't exist.
         rejectedMessage (str): Emitted when a message is rejected by the server.
@@ -70,6 +73,8 @@ class BanchoClient(AsyncIOEventEmitter):
         self._send_queue: asyncio.Queue[str] = asyncio.Queue()
         self._read_task: asyncio.Task | None = None
         self._send_task: asyncio.Task | None = None
+        self._users: dict[str, BanchoUser] = {}
+        self._channels: dict[str, BanchoChannel] = {}
 
     @property
     def state(self) -> ConnectStates:
@@ -197,35 +202,63 @@ class BanchoClient(AsyncIOEventEmitter):
     async def _handle_privmsg(self, prefix: str | None, params: list[str]) -> None:
         if not prefix or len(params) < 2:
             return
-        sender = prefix.split("!")[0]
+        sender_nick = prefix.split("!")[0]
         target = params[0]
-        message = params[1]
+        text = params[1]
+        user = self.get_user(sender_nick)
 
         if target.casefold() == self.username.casefold():
-            self.emit("PM", {"user": sender, "message": message})
+            msg = PrivateMessage(user=user, message=text)
+            user.emit("message", msg)
+            self.emit("PM", msg)
         elif target.startswith("#"):
-            self.emit("CM", {"channel": target, "user": sender, "message": message})
+            channel = self.get_channel(target)
+            msg = ChannelMessage(user=user, message=text, channel=channel)
+            channel.emit("message", msg)
+            self.emit("CM", msg)
 
     async def _handle_join(self, prefix: str | None, params: list[str]) -> None:
         if not prefix or not params:
             return
-        user = prefix.split("!")[0]
-        channel = params[0]
+        user = self.get_user(prefix.split("!")[0])
+        channel = self.get_channel(params[0])
+        channel.members[user.username.casefold()] = BanchoChannelMember(user=user)
+        channel.emit("JOIN", user)
         self.emit("JOIN", {"channel": channel, "user": user})
 
     async def _handle_part(self, prefix: str | None, params: list[str]) -> None:
         if not prefix or not params:
             return
-        user = prefix.split("!")[0]
-        channel = params[0]
+        user = self.get_user(prefix.split("!")[0])
+        channel = self.get_channel(params[0])
+        channel.members.pop(user.username.casefold(), None)
+        channel.emit("PART", user)
         self.emit("PART", {"channel": channel, "user": user})
 
     async def _handle_quit(self, prefix: str | None, params: list[str]) -> None:
         if not prefix:
             return
-        user = prefix.split("!")[0]
+        user = self.get_user(prefix.split("!")[0])
         message = params[0] if params else None
+        for channel in self._channels.values():
+            if user.username.casefold() in channel.members:
+                del channel.members[user.username.casefold()]
+                channel.emit("PART", user)
         self.emit("QUIT", {"user": user, "message": message})
+
+    def get_user(self, username: str) -> BanchoUser:
+        key = username.casefold()
+        if key not in self._users:
+            self._users[key] = BanchoUser(self, username)
+        return self._users[key]
+
+    def get_channel(self, name: str) -> BanchoChannel:
+        if name not in self._channels:
+            if name.startswith("#mp_"):
+                self._channels[name] = BanchoMultiplayerChannel(self, name)
+            else:
+                self._channels[name] = BanchoChannel(self, name)
+        return self._channels[name]
 
     async def send_message(self, target: str, message: str) -> None:
         """Queue a PRIVMSG to a user or channel (rate-limited)."""
