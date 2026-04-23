@@ -1,9 +1,9 @@
 name: integration
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"  # mondays at 06:00 UTC
 
 jobs:
   integration:
