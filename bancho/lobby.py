@@ -28,17 +28,22 @@ _RE_PLAYER_JOINED = re.compile(r"^(.+) joined in slot (\d+)\.$")
 _RE_PLAYER_JOINED_TEAM = re.compile(r"^(.+) joined in slot (\d+) for team (Red|Blue)\.$")
 _RE_PLAYER_LEFT = re.compile(r"^(.+) left the game\.$")
 _RE_PLAYER_FINISHED = re.compile(r"^(.+) finished playing \(Score: (\d+), (PASSED|FAILED)\)\.$")
-_RE_PLAYER_MOVED = re.compile(r"^(.+) moved to slot (\d+)\.$")
-_RE_PLAYER_TEAM = re.compile(r"^(.+) changed to (Blue|Red)\.$")
+_RE_PLAYER_MOVED = re.compile(r"^(.+) moved to slot (\d+)$")
+_RE_PLAYER_TEAM = re.compile(r"^(.+) changed to (Blue|Red)$")
 _RE_HOST = re.compile(r"^(.+) became the host\.$")
 _RE_BEATMAP_CHANGED = re.compile(r"Beatmap changed to: .+https://osu\.ppy\.sh/b/(\d+)")
 _RE_REF_BEATMAP_CHANGED = re.compile(r"^Changed beatmap to https://osu\.ppy\.sh/b/(\d+) .+$")
 _RE_REF_ADDED = re.compile(r"^Added (.+) to the match referees$")
 _RE_REF_REMOVED = re.compile(r"^Removed (.+) from the match referees$")
 _RE_USER_NOT_FOUND = re.compile(r"^User not found: (.+)$")
-_RE_START_TIMER_TICK = re.compile(r"^Match starts in (\d+) seconds?$")
-_RE_START_TIMER_STARTED = re.compile(r"^Queued the match to start in (\d+) seconds?$")
-_RE_TIMER_STARTED = re.compile(r"^Countdown ends in (\d+) seconds?$")
+_RE_REF_NAME_CHANGED = re.compile(r'^Room name updated to "(.+)"$')
+_RE_REF_MODE_CHANGED = re.compile(r"^Changed match mode to (Osu|Taiko|CatchTheBeat|OsuMania)$")
+_RE_REF_MODS_CHANGED = re.compile(r"^(?:Enabled (.+)|Disabled all mods), (disabled|enabled) FreeMod$")
+_RE_MATCH_SIZE = re.compile(r"^Changed match to size (\d+)$")
+_RE_MATCH_SETTINGS = re.compile(r"^Changed match settings to (?:(\d+) slots, )?(HeadToHead|TagCoop|TeamVs|TagTeamVs)(?:, (Score|Accuracy|Combo|ScoreV2))?$")
+_RE_START_TIMER_TICK = re.compile(r"^Match starts in (\d+) minutes?(?: and (\d+) seconds?)?$|^Match starts in (\d+) seconds?$")
+_RE_START_TIMER_STARTED = re.compile(r"^Queued the match to start in (\d+) minutes?(?: and (\d+) seconds?)?$|^Queued the match to start in (\d+) seconds?$")
+_RE_TIMER_STARTED = re.compile(r"^Countdown ends in (\d+) minutes?(?: and (\d+) seconds?)?$|^Countdown ends in (\d+) seconds?$")
 _RE_SETTINGS_ROOM = re.compile(r"^Room name: (.+), History: https://osu\.ppy\.sh/mp/\d+$")
 _RE_SETTINGS_BEATMAP = re.compile(r"^Beatmap: https://osu\.ppy\.sh/b/(\d+) .+$")
 _RE_SETTINGS_MODES = re.compile(r"^Team mode: (.+), Win condition: (.+)$")
@@ -102,6 +107,20 @@ _PLAYER_STATE_STRINGS: dict[str, BanchoLobbyPlayerStates] = {
     "Playing": BanchoLobbyPlayerStates.Playing,
 }
 
+_GAMEMODE_STRINGS: dict[str, BanchoGamemode] = {
+    "Osu": BanchoGamemode.Osu,
+    "Taiko": BanchoGamemode.Taiko,
+    "CatchTheBeat": BanchoGamemode.CatchTheBeat,
+    "OsuMania": BanchoGamemode.OsuMania,
+}
+
+
+def _timer_seconds(m: re.Match) -> int:
+    """Extract seconds from a timer regex match (minutes+seconds or plain seconds alternation)."""
+    if m.group(1) is not None:  # minutes form: groups 1 (min), 2 (sec, optional)
+        return int(m.group(1)) * 60 + (int(m.group(2)) if m.group(2) else 0)
+    return int(m.group(3))  # plain seconds form: group 3
+
 
 def _mods_to_str(mods: Mod) -> str:
     if mods == Mod.NoMod:
@@ -148,15 +167,17 @@ class BanchoLobby(AsyncIOEventEmitter):
     Events:
         allPlayersReady: All players are ready.
         beatmapId (int): Beatmap ID changed.
+        beatmapChanging: Host is changing the map.
         invalidBeatmapId: Selected beatmap ID is invalid.
         beatmapNotFound: Selected beatmap not found.
         freemod (bool): Freemod toggled.
+        gamemode (BanchoGamemode): Gamemode changed.
         host (BanchoLobbyPlayer): Host changed.
         hostCleared: Host cleared.
         matchStarted: Match started.
         matchFinished (list[BanchoLobbyPlayerScore]): Match finished with sorted scores.
         matchAborted: Match aborted.
-        matchSettings (dict): Room settings updated (from !mp settings).
+        matchSettings (dict): Room settings updated (from !mp settings or !mp set).
         mods (Mod): Mods changed.
         name (str): Room name changed.
         passwordChanged: Password set.
@@ -192,6 +213,7 @@ class BanchoLobby(AsyncIOEventEmitter):
         self.name: str = ""
         self.size: int = 16
         self.beatmap_id: int | None = None
+        self.gamemode: BanchoGamemode = BanchoGamemode.Osu
         self.team_mode: BanchoLobbyTeamModes = BanchoLobbyTeamModes.HeadToHead
         self.win_condition: BanchoLobbyWinConditions = BanchoLobbyWinConditions.Score
         self.mods: Mod = Mod.NoMod
@@ -338,15 +360,55 @@ class BanchoLobby(AsyncIOEventEmitter):
             self.emit("userNotFoundUsername", m.group(1))
             self.emit("userNotFound")
 
+        elif text == "User not found":
+            self.emit("userNotFound")
+
+        elif m := _RE_REF_NAME_CHANGED.match(text):
+            self.name = m.group(1)
+            self.emit("name", self.name)
+
+        elif m := _RE_REF_MODE_CHANGED.match(text):
+            self.gamemode = _GAMEMODE_STRINGS[m.group(1)]
+            self.emit("gamemode", self.gamemode)
+
+        elif m := _RE_REF_MODS_CHANGED.match(text):
+            mods_str = m.group(1) or ""
+            freemod = m.group(2) == "enabled"
+            self.mods = _parse_mods(mods_str)[0]
+            self.freemod = freemod
+            self.emit("mods", self.mods)
+            self.emit("freemod", self.freemod)
+
+        elif m := _RE_MATCH_SIZE.match(text):
+            self.size = int(m.group(1))
+            self.emit("size", self.size)
+
+        elif m := _RE_MATCH_SETTINGS.match(text):
+            if m.group(1):
+                self.size = int(m.group(1))
+            if tm := _TEAM_MODE_STRINGS.get(m.group(2)):
+                self.team_mode = tm
+            if wc := _WIN_CONDITION_STRINGS.get(m.group(3) or ""):
+                self.win_condition = wc
+            self.emit("matchSettings", {
+                "size": self.size,
+                "team_mode": self.team_mode,
+                "win_condition": self.win_condition,
+            })
+
+        elif text == "Host is changing map...":
+            self.beatmap_id = None
+            self.emit("beatmapChanging")
+
         elif m := _RE_START_TIMER_STARTED.match(text):
-            self.emit("startTimerStarted", int(m.group(1)))
+            self.emit("startTimerStarted", _timer_seconds(m))
 
         elif m := _RE_START_TIMER_TICK.match(text):
-            self.emit("startTimerTick", {"seconds": int(m.group(1))})
+            self.emit("startTimerTick", {"seconds": _timer_seconds(m)})
 
         elif m := _RE_TIMER_STARTED.match(text):
-            self.emit("startTimerStarted", int(m.group(1)))
-            self.emit("timerTick", {"seconds": int(m.group(1))})
+            self.emit("startTimerStarted", _timer_seconds(m))
+            self.emit("timerTick", {"seconds": _timer_seconds(m)})
 
         elif text in ("Aborted the match start timer", "Countdown aborted"):
             self.emit("startTimerAborted")

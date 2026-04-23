@@ -172,7 +172,7 @@ class TestPlayerMoved:
         lobby.on("playerMoved", events.append)
 
         parse(lobby, "player1 joined in slot 1.")
-        parse(lobby, "player1 moved to slot 5.")
+        parse(lobby, "player1 moved to slot 5")
 
         assert len(events) == 1
         assert events[0]["slot"] == 5
@@ -187,7 +187,7 @@ class TestTeamChange:
         lobby.on("playerChangedTeam", events.append)
 
         parse(lobby, "player1 joined in slot 1.")
-        parse(lobby, "player1 changed to Red.")
+        parse(lobby, "player1 changed to Red")
 
         assert len(events) == 1
         assert events[0]["team"] == BanchoLobbyTeams.Red
