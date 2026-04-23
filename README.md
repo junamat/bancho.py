@@ -30,7 +30,7 @@ async def on_pm(message):
 asyncio.run(client.connect())
 ```
 
-You can get your IRC password at [osu.ppy.sh/p/irc](https://osu.ppy.sh/p/irc).
+You can get your IRC password at [osu.ppy.sh/home/account/edit#legacy-api](https://osu.ppy.sh/home/account/edit#legacy-api).
 
 > **Note:** Please use a dedicated bot account and make sure it's authorized per the [osu! Bot Account wiki page](https://osu.ppy.sh/wiki/en/Bot_account). Don't run this on your main account.
 
