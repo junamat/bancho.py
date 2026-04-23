@@ -344,7 +344,7 @@ class TestBeatmap:
         events = []
         lobby.on("invalidBeatmapId", lambda: events.append(True))
 
-        parse(lobby, "Invalid map id")
+        parse(lobby, "Invalid map ID provided")
 
         assert events == [True]
 
@@ -375,7 +375,7 @@ class TestSlotEvents:
         events = []
         lobby.on("slotsLocked", lambda: events.append(True))
 
-        parse(lobby, "The match is locked.")
+        parse(lobby, "Locked the match")
 
         assert events == [True]
 
@@ -384,7 +384,7 @@ class TestSlotEvents:
         events = []
         lobby.on("slotsUnlocked", lambda: events.append(True))
 
-        parse(lobby, "The match is unlocked.")
+        parse(lobby, "Unlocked the match")
 
         assert events == [True]
 
@@ -438,7 +438,7 @@ class TestTimerEvents:
         events = []
         lobby.on("startTimerAborted", lambda: events.append(True))
 
-        parse(lobby, "Aborted the countdown")
+        parse(lobby, "Aborted the match start timer")
 
         assert events == [True]
 
