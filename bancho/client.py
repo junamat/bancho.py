@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 from pyee.asyncio import AsyncIOEventEmitter
 
 from .channel import BanchoChannel, BanchoChannelMember, BanchoMultiplayerChannel
@@ -114,15 +115,15 @@ class BanchoClient(AsyncIOEventEmitter):
             self._read_task.cancel()
         if self._send_task and not self._send_task.done():
             self._send_task.cancel()
-        if self._writer:
-            try:
-                self._writer.close()
-                await self._writer.wait_closed()
-            except Exception:
-                pass
+
+        writer, self._writer = self._writer, None
         self._reader = None
-        self._writer = None
         self._set_state(ConnectStates.Disconnected)
+
+        if writer:
+            writer.close()
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await writer.wait_closed()
 
     async def _send_raw(self, line: str) -> None:
         if self._writer is None:
@@ -145,7 +146,7 @@ class BanchoClient(AsyncIOEventEmitter):
         except Exception as e:
             self.emit("error", e)
         finally:
-            if self._state != ConnectStates.Disconnected:
+            if self._state not in (ConnectStates.Disconnected, ConnectStates.Disconnecting):
                 await self._cleanup()
 
     async def _send_loop(self) -> None:
