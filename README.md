@@ -1,6 +1,6 @@
 # bancho.py
 
-[![Tests](https://github.com/{owner}/bancho.py/actions/workflows/tests.yml/badge.svg)](https://github.com/junamat/bancho.py/actions/workflows/tests.yml)
+[![Tests](https://github.com/junamat/bancho.py/actions/workflows/tests.yml/badge.svg)](https://github.com/junamat/bancho.py/actions/workflows/tests.yml)
 [![PyPI](https://img.shields.io/pypi/v/bancho.py)](https://pypi.org/project/bancho.py/)
 [![Python](https://img.shields.io/pypi/pyversions/bancho.py)](https://pypi.org/project/bancho.py/)
 [![License](https://img.shields.io/github/license/junamat/bancho.py)](LICENSE)
