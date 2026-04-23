@@ -32,11 +32,13 @@ _RE_PLAYER_MOVED = re.compile(r"^(.+) moved to slot (\d+)\.$")
 _RE_PLAYER_TEAM = re.compile(r"^(.+) changed to (Blue|Red)\.$")
 _RE_HOST = re.compile(r"^(.+) became the host\.$")
 _RE_BEATMAP_CHANGED = re.compile(r"Beatmap changed to: .+https://osu\.ppy\.sh/b/(\d+)")
+_RE_REF_BEATMAP_CHANGED = re.compile(r"^Changed beatmap to https://osu\.ppy\.sh/b/(\d+) .+$")
 _RE_REF_ADDED = re.compile(r"^Added (.+) to the match referees$")
 _RE_REF_REMOVED = re.compile(r"^Removed (.+) from the match referees$")
 _RE_USER_NOT_FOUND = re.compile(r"^User not found: (.+)$")
-_RE_START_TIMER_TICK = re.compile(r"^(?:The match will start|Match starts) in (\d+) seconds?$")
-_RE_TIMER_STARTED = re.compile(r"^Countdown ends in (\d+) seconds$")
+_RE_START_TIMER_TICK = re.compile(r"^Match starts in (\d+) seconds?$")
+_RE_START_TIMER_STARTED = re.compile(r"^Queued the match to start in (\d+) seconds?$")
+_RE_TIMER_STARTED = re.compile(r"^Countdown ends in (\d+) seconds?$")
 _RE_SETTINGS_ROOM = re.compile(r"^Room name: (.+), History: https://osu\.ppy\.sh/mp/\d+$")
 _RE_SETTINGS_BEATMAP = re.compile(r"^Beatmap: https://osu\.ppy\.sh/b/(\d+) .+$")
 _RE_SETTINGS_MODES = re.compile(r"^Team mode: (.+), Win condition: (.+)$")
@@ -307,7 +309,11 @@ class BanchoLobby(AsyncIOEventEmitter):
             self.beatmap_id = int(m.group(1))
             self.emit("beatmapId", self.beatmap_id)
 
-        elif text in ("Invalid map id", "No beatmap found!"):
+        elif m := _RE_REF_BEATMAP_CHANGED.match(text):
+            self.beatmap_id = int(m.group(1))
+            self.emit("beatmapId", self.beatmap_id)
+
+        elif text == "Invalid map ID provided":
             self.emit("invalidBeatmapId")
 
         elif text == "Changed the match password":
@@ -316,10 +322,10 @@ class BanchoLobby(AsyncIOEventEmitter):
         elif text == "Removed the match password":
             self.emit("passwordRemoved")
 
-        elif text == "The match is locked.":
+        elif text == "Locked the match":
             self.emit("slotsLocked")
 
-        elif text == "The match is unlocked.":
+        elif text == "Unlocked the match":
             self.emit("slotsUnlocked")
 
         elif m := _RE_REF_ADDED.match(text):
@@ -332,16 +338,19 @@ class BanchoLobby(AsyncIOEventEmitter):
             self.emit("userNotFoundUsername", m.group(1))
             self.emit("userNotFound")
 
+        elif m := _RE_START_TIMER_STARTED.match(text):
+            self.emit("startTimerStarted", int(m.group(1)))
+
         elif m := _RE_START_TIMER_TICK.match(text):
             self.emit("startTimerTick", {"seconds": int(m.group(1))})
 
         elif m := _RE_TIMER_STARTED.match(text):
-            # "Countdown ends in N seconds" is sent by both !mp start N and !mp timer N
-            self.emit("startTimerStarted", int(m.group(1)))
             self.emit("timerTick", {"seconds": int(m.group(1))})
 
-        elif text == "Aborted the countdown":
+        elif text == "Aborted the match start timer":
             self.emit("startTimerAborted")
+
+        elif text == "Countdown aborted":
             self.emit("timerAborted")
 
         elif text == "Countdown finished":
