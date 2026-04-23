@@ -1,11 +1,17 @@
+from __future__ import annotations
+
 import asyncio
 import contextlib
+from typing import TYPE_CHECKING
 from pyee.asyncio import AsyncIOEventEmitter
 
 from .channel import BanchoChannel, BanchoChannelMember, BanchoMultiplayerChannel
 from .enums import ConnectStates
 from .messages import ChannelMessage, PrivateMessage
 from .user import BanchoUser
+
+if TYPE_CHECKING:
+    from .lobby import BanchoLobby
 
 BANCHO_HOST = "irc.ppy.sh"
 BANCHO_PORT = 6667
