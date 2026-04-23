@@ -1,0 +1,25 @@
+name: integration
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run integration tests
+        env:
+          OSU_IRC_USERNAME: ${{ secrets.OSU_IRC_USERNAME }}
+          OSU_IRC_PASSWORD: ${{ secrets.OSU_IRC_PASSWORD }}
+        run: pytest tests/ -m integration -v
