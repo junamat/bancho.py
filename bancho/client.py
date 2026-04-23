@@ -270,3 +270,44 @@ class BanchoClient(AsyncIOEventEmitter):
 
     async def part_channel(self, name: str) -> None:
         await self._send_raw(f"PART {name}")
+
+    async def make_lobby(self, name: str, timeout: float = 10) -> BanchoLobby:
+        from .lobby import BanchoLobby
+
+        future: asyncio.Future[tuple[int, str]] = asyncio.get_event_loop().create_future()
+
+        def on_pm(msg: PrivateMessage) -> None:
+            if msg.user.username != "BanchoBot" or future.done():
+                return
+            import re
+            m = re.match(
+                r"Created the tournament match https://osu\.ppy\.sh/mp/(\d+) (.+)",
+                msg.message,
+            )
+            if m:
+                future.set_result((int(m.group(1)), m.group(2)))
+
+        self.on("PM", on_pm)
+        await self.send_message("BanchoBot", f"!mp make {name}")
+
+        try:
+            lobby_id, lobby_name = await asyncio.wait_for(future, timeout=timeout)
+        finally:
+            self.remove_listener("PM", on_pm)
+
+        from .channel import BanchoMultiplayerChannel
+        channel = self.get_channel(f"#mp_{lobby_id}")
+        assert isinstance(channel, BanchoMultiplayerChannel)
+        lobby = BanchoLobby(self, channel)
+        lobby.name = lobby_name
+        return lobby
+
+    async def join_lobby(self, lobby_id: int) -> BanchoLobby:
+        from .channel import BanchoMultiplayerChannel
+        from .lobby import BanchoLobby
+
+        channel_name = f"#mp_{lobby_id}"
+        await self.join_channel(channel_name)
+        channel = self.get_channel(channel_name)
+        assert isinstance(channel, BanchoMultiplayerChannel)
+        return BanchoLobby(self, channel)

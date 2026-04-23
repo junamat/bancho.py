@@ -1,5 +1,6 @@
 from .channel import BanchoChannel, BanchoChannelMember, BanchoChannelMemberMode, BanchoMultiplayerChannel
 from .client import BanchoClient
+from .lobby import BanchoLobby, BanchoLobbyPlayer, BanchoLobbyPlayerScore
 from .enums import (
     BanchoGamemode,
     BanchoLobbyPlayerStates,
@@ -17,6 +18,9 @@ __all__ = [
     "BanchoChannelMember",
     "BanchoChannelMemberMode",
     "BanchoClient",
+    "BanchoLobby",
+    "BanchoLobbyPlayer",
+    "BanchoLobbyPlayerScore",
     "BanchoGamemode",
     "BanchoLobbyPlayerStates",
     "BanchoLobbyTeamModes",
