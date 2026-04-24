@@ -113,6 +113,7 @@ class BanchoClient(AsyncIOEventEmitter):
         if self._state == ConnectStates.Disconnected:
             return
         self._set_state(ConnectStates.Disconnecting)
+        await self._send_queue.join()
         await self._send_raw("QUIT")
         await self._cleanup()
 
@@ -159,8 +160,11 @@ class BanchoClient(AsyncIOEventEmitter):
         try:
             while True:
                 line = await self._send_queue.get()
-                await self._send_raw(line)
-                await asyncio.sleep(self._rate_limit)
+                try:
+                    await self._send_raw(line)
+                    await asyncio.sleep(self._rate_limit)
+                finally:
+                    self._send_queue.task_done()
         except asyncio.CancelledError:
             pass
 
