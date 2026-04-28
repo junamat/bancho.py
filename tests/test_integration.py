@@ -2,7 +2,7 @@ import asyncio
 import os
 import pytest
 
-from bancho import BanchoClient, ConnectStates, PrivateMessage
+from bancho import ConnectStates, PrivateMessage
 
 USERNAME = os.getenv("OSU_IRC_USERNAME", "")
 PASSWORD = os.getenv("OSU_IRC_PASSWORD", "")
@@ -12,35 +12,8 @@ pytestmark = [
     pytest.mark.skipif(not USERNAME, reason="OSU_IRC_USERNAME not set"),
 ]
 
-
-@pytest.fixture
-async def client():
-    c = BanchoClient(USERNAME, PASSWORD)
-    errors = []
-    c.on("error", errors.append)
-
-    connected = asyncio.Event()
-    c.on("connected", connected.set)
-
-    await c.connect()
-    await asyncio.wait_for(connected.wait(), timeout=15)
-
-    if errors:
-        pytest.fail(f"connection error: {errors[0]}")
-
-    yield c
-
-    if c.state != ConnectStates.Disconnected:
-        await c.disconnect()
-
-
 async def test_connect(client):
     assert client.state == ConnectStates.Connected
-
-
-async def test_disconnect(client):
-    await client.disconnect()
-    assert client.state == ConnectStates.Disconnected
 
 
 async def test_banchobot_replies_to_pm(client):

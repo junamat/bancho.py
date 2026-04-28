@@ -2,7 +2,6 @@ import asyncio
 import os
 import pytest
 
-from bancho import BanchoClient, ConnectStates
 from bancho.enums import BanchoLobbyTeamModes, BanchoLobbyWinConditions
 
 USERNAME = os.getenv("OSU_IRC_USERNAME", "")
@@ -13,27 +12,6 @@ pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(not USERNAME, reason="OSU_IRC_USERNAME not set"),
 ]
-
-
-@pytest.fixture
-async def client():
-    c = BanchoClient(USERNAME, PASSWORD)
-    errors = []
-    c.on("error", errors.append)
-
-    connected = asyncio.Event()
-    c.on("connected", connected.set)
-
-    await c.connect()
-    await asyncio.wait_for(connected.wait(), timeout=TIMEOUT)
-
-    if errors:
-        pytest.fail(f"connection error: {errors[0]}")
-
-    yield c
-
-    if c.state != ConnectStates.Disconnected:
-        await c.disconnect()
 
 
 @pytest.fixture
