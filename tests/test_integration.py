@@ -9,6 +9,7 @@ PASSWORD = os.getenv("OSU_IRC_PASSWORD", "")
 
 pytestmark = [
     pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
     pytest.mark.skipif(not USERNAME, reason="OSU_IRC_USERNAME not set"),
 ]
 
