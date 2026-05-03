@@ -108,6 +108,23 @@ class TestPlayerJoined:
         assert lobby.slots[1] is not None
         assert lobby.slots[1].user.username == "player1"
 
+    def test_sparse_slot_placement(self):
+        _, lobby = make_lobby()
+
+        parse(lobby, "player1 joined in slot 14.")
+
+        # Total array size is always 16
+        assert len(lobby.slots) == 16
+        
+        # All slots should be None except index 13 (which is slot 14)
+        for i, player in enumerate(lobby.slots):
+            if i == 13:
+                assert player is not None
+                assert player.user.username == "player1"
+                assert player.slot == 14
+            else:
+                assert player is None
+
     def test_join_with_team(self):
         _, lobby = make_lobby()
         events = []
@@ -499,3 +516,121 @@ class TestSettingsParsing:
 
         assert lobby.slots[0] is not None
         assert lobby.slots[0].state == BanchoLobbyPlayerStates.NotReady
+
+    '''
+    tests added based on BanchoSharp's
+
+    thank u stage -- didn't have any !mp settings strings to actually test and abstract
+    in hand...
+    '''
+
+    def test_slot_parsing_with_host(self):
+        _, lobby = make_lobby()
+
+        parse(lobby, "Players: 1")
+        parse(lobby, "Slot 1  Not Ready https://osu.ppy.sh/u/123456 PlayerOne           [Host]")
+
+        assert lobby.slots[0] is not None
+        assert lobby.slots[0].is_host is True
+        assert lobby.slots[0].team == BanchoLobbyTeams.NoTeam
+
+    def test_slot_parsing_with_team(self):
+        _, lobby = make_lobby()
+
+        parse(lobby, "Players: 1")
+        parse(lobby, "Slot 1  Ready https://osu.ppy.sh/u/123456 PlayerOne           [Team Blue]")
+
+        assert lobby.slots[0] is not None
+        assert lobby.slots[0].team == BanchoLobbyTeams.Blue
+        assert lobby.slots[0].is_host is False
+
+    def test_slot_parsing_with_host_and_team(self):
+        _, lobby = make_lobby()
+
+        parse(lobby, "Players: 1")
+        parse(lobby, "Slot 1  Not Ready https://osu.ppy.sh/u/123456 PlayerOne           [Host / Team Red]")
+
+        assert lobby.slots[0] is not None
+        assert lobby.slots[0].is_host is True
+        assert lobby.slots[0].team == BanchoLobbyTeams.Red
+
+    def test_slot_parsing_multiple_flags(self):
+        _, lobby = make_lobby()
+
+        parse(lobby, "Players: 1")
+        parse(lobby, "Slot 1  Not Ready https://osu.ppy.sh/u/8191845 Stage           [Host / Team Blue / Easy, Hidden]")
+
+        assert lobby.slots[0] is not None
+        assert lobby.slots[0].is_host is True
+        assert lobby.slots[0].team == BanchoLobbyTeams.Blue
+        assert lobby.slots[0].mods == Mod.Easy | Mod.Hidden
+
+    def test_settings_ready_event(self):
+        _, lobby = make_lobby()
+        events = []
+        lobby.on("settingsReady", lambda: events.append(True))
+
+        parse(lobby, "Players: 2")
+        parse(lobby, "Slot 1  Not Ready https://osu.ppy.sh/u/123 PlayerOne")
+        assert len(events) == 0
+        parse(lobby, "Slot 2  Not Ready https://osu.ppy.sh/u/456 PlayerTwo")
+        assert len(events) == 1
+
+    def test_mp_settings_updates(self):
+        _, lobby = make_lobby()
+        
+        parse(lobby, "Room name: SS26: (ESCRUPULILLO) vs. (A L E P H), History: https://osu.ppy.sh/mp/120974698")
+        parse(lobby, "Beatmap: https://osu.ppy.sh/b/5608961 Thaehan - Sugarland [AR7]")
+        parse(lobby, "Team mode: TeamVs, Win condition: ScoreV2")
+        parse(lobby, "Active mods: Hidden, Freemod")
+        parse(lobby, "Players: 2")
+        parse(lobby, "Slot 1  Not Ready https://osu.ppy.sh/u/18217876 ESCRUPULILLO           [Team Red]")
+        parse(lobby, "Slot 2  Ready https://osu.ppy.sh/u/6735738 A L E P H           [Host / Team Blue]")
+        
+        assert lobby.name == "SS26: (ESCRUPULILLO) vs. (A L E P H)"
+        assert lobby.beatmap_id == 5608961
+        assert lobby.team_mode == BanchoLobbyTeamModes.TeamVs
+        assert lobby.win_condition == BanchoLobbyWinConditions.ScoreV2
+        assert Mod.Hidden in lobby.mods
+        assert lobby.freemod is True
+        
+        assert lobby.slots[0] is not None
+        assert lobby.slots[0].user.username == "ESCRUPULILLO"
+        assert lobby.slots[0].is_host is False
+        assert lobby.slots[0].team == BanchoLobbyTeams.Red
+        assert lobby.slots[0].state == BanchoLobbyPlayerStates.NotReady
+
+        assert lobby.slots[1] is not None
+        assert lobby.slots[1].user.username == "A L E P H"
+        assert lobby.slots[1].is_host is True
+        assert lobby.slots[1].team == BanchoLobbyTeams.Blue
+        assert lobby.slots[1].state == BanchoLobbyPlayerStates.Ready
+
+
+class TestMatchMode:
+    def test_match_mode_change(self):
+        from bancho.enums import BanchoGamemode
+        _, lobby = make_lobby()
+        events = []
+        lobby.on("gamemode", events.append)
+        
+        parse(lobby, "Changed match mode to Osu")
+        assert lobby.gamemode == BanchoGamemode.Osu
+        assert events == [BanchoGamemode.Osu]
+        
+        parse(lobby, "Changed match mode to Taiko")
+        assert lobby.gamemode == BanchoGamemode.Taiko
+        assert events[-1] == BanchoGamemode.Taiko
+        
+        parse(lobby, "Changed match mode to CatchTheBeat")
+        assert lobby.gamemode == BanchoGamemode.CatchTheBeat
+        
+        parse(lobby, "Changed match mode to OsuMania")
+        assert lobby.gamemode == BanchoGamemode.OsuMania
+
+    '''
+    end of tests based on BanchoSharp's
+    '''
+
+
+    

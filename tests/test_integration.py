@@ -52,3 +52,10 @@ async def test_user_can_send_pm(client):
 
     msg = await asyncio.wait_for(reply, timeout=15)
     assert msg.user.username == "BanchoBot"
+
+
+async def test_make_private_lobby(client):
+    lb = await client.make_lobby("bancho.py private integration test", private=True)
+    assert lb.id > 0
+    assert lb.get_history_url() == f"https://osu.ppy.sh/mp/{lb.id}"
+    await lb.close_lobby()

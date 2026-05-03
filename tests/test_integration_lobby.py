@@ -100,3 +100,12 @@ async def test_set_settings(lobby):
     await asyncio.wait_for(q.get(), timeout=TIMEOUT)
     assert lobby.team_mode == BanchoLobbyTeamModes.TeamVs
     assert lobby.win_condition == BanchoLobbyWinConditions.ScoreV2
+
+
+async def test_fetch_settings(lobby):
+    # This should trigger !mp settings, wait for the full response to finish, and return slots
+    slots = await lobby.fetch_settings()
+    assert len(slots) == 16
+    assert isinstance(slots, list)
+    # the integration lobby shouldn't have anyone in it since we just made it 
+    assert slots[0] is None
