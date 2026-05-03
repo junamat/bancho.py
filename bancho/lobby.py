@@ -50,7 +50,7 @@ _RE_SETTINGS_MODES = re.compile(r"^Team mode: (.+), Win condition: (.+)$")
 _RE_SETTINGS_MODS = re.compile(r"^Active mods: (.+)$")
 _RE_SETTINGS_PLAYERS = re.compile(r"^Players: (\d+)$")
 _RE_SETTINGS_SLOT = re.compile(
-    r"^Slot (\d+)\s+(Not Ready|Ready|No Map|Playing)\s+https://osu\.ppy\.sh/u/\d+\s+(.+?)(?:\s+\[(.+)\])?$"
+    r"^Slot (\d+)\s+(Not Ready|Ready|No Map|Playing)\s+https://osu\.ppy\.sh/u/(\d+)\s+(.+?)(?:\s+\[(.+)\])?$"
 )
 
 
@@ -454,8 +454,9 @@ class BanchoLobby(AsyncIOEventEmitter):
         elif m := _RE_SETTINGS_SLOT.match(text):
             slot_num = int(m.group(1))
             state = _PLAYER_STATE_STRINGS.get(m.group(2), BanchoLobbyPlayerStates.NotReady)
-            username = m.group(3).strip()
-            flags_str = m.group(4)
+            user_id = int(m.group(3))
+            username = m.group(4).strip()
+            flags_str = m.group(5)
             
             is_host = False
             team = BanchoLobbyTeams.NoTeam
@@ -473,6 +474,7 @@ class BanchoLobby(AsyncIOEventEmitter):
                         mods, _ = _parse_mods(p)
 
             user = self._client.get_user(username)
+            user.id = user_id
             existing = self.slots[slot_num - 1]
             if existing and existing.user.username.casefold() == username.casefold():
                 existing.state = state
