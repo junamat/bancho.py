@@ -50,7 +50,7 @@ _RE_SETTINGS_MODES = re.compile(r"^Team mode: (.+), Win condition: (.+)$")
 _RE_SETTINGS_MODS = re.compile(r"^Active mods: (.+)$")
 _RE_SETTINGS_PLAYERS = re.compile(r"^Players: (\d+)$")
 _RE_SETTINGS_SLOT = re.compile(
-    r"^Slot (\d+)\s+(Not Ready|Ready|No Map|Playing)\s+https://osu\.ppy\.sh/u/\d+\s+(.+?)(?:\s+\[.+\])?$"
+    r"^Slot (\d+)\s+(Not Ready|Ready|No Map|Playing)\s+https://osu\.ppy\.sh/u/\d+\s+(.+?)(?:\s+\[(.+)\])?$"
 )
 
 
@@ -129,13 +129,15 @@ def _mods_to_str(mods: Mod) -> str:
 
 
 def _parse_mods(mod_str: str) -> tuple[Mod, bool]:
-    freemod = "Freemod" in mod_str
+    freemod = "Freemod" in mod_str or "FreeMod" in mod_str
     combined = Mod.NoMod
     for part in mod_str.replace(",", " ").split():
-        if part in ("None", "Freemod"):
+        if part in ("None", "Freemod", "FreeMod"):
             continue
         if mod := _ABBREV_TO_MOD.get(part):
             combined |= mod
+        elif part in Mod.__members__:
+            combined |= Mod[part]
     return combined, freemod
 
 
@@ -444,18 +446,55 @@ class BanchoLobby(AsyncIOEventEmitter):
                 "team_mode": self.team_mode,
                 "win_condition": self.win_condition,
             })
+            self._expected_slots = int(m.group(1))
+            self._parsed_slots = 0
+            if self._expected_slots == 0:
+                self.emit("settingsReady")
 
         elif m := _RE_SETTINGS_SLOT.match(text):
             slot_num = int(m.group(1))
             state = _PLAYER_STATE_STRINGS.get(m.group(2), BanchoLobbyPlayerStates.NotReady)
             username = m.group(3).strip()
+            flags_str = m.group(4)
+            
+            is_host = False
+            team = BanchoLobbyTeams.NoTeam
+            mods = Mod.NoMod
+            
+            if flags_str:
+                for p in [p.strip() for p in flags_str.split("/")]:
+                    if p == "Host":
+                        is_host = True
+                    elif p == "Team Blue":
+                        team = BanchoLobbyTeams.Blue
+                    elif p == "Team Red":
+                        team = BanchoLobbyTeams.Red
+                    else:
+                        mods, _ = _parse_mods(p)
+
             user = self._client.get_user(username)
             existing = self.slots[slot_num - 1]
             if existing and existing.user.username.casefold() == username.casefold():
                 existing.state = state
+                existing.is_host = is_host
+                existing.mods = mods
+                if team != BanchoLobbyTeams.NoTeam:
+                    existing.team = team
             else:
-                player = BanchoLobbyPlayer(lobby=self, user=user, slot=slot_num, state=state)
+                player = BanchoLobbyPlayer(lobby=self, user=user, slot=slot_num, team=team, state=state, mods=mods, is_host=is_host)
                 self._place(player)
+
+            if is_host:
+                for p in self.slots:
+                    if p and p.slot != slot_num:
+                        p.is_host = False
+
+            if hasattr(self, "_expected_slots"):
+                self._parsed_slots += 1
+                if self._parsed_slots >= self._expected_slots:
+                    self.emit("settingsReady")
+                    del self._expected_slots
+                    del self._parsed_slots
 
     # ── properties ────────────────────────────────────────────────────────────
 
@@ -548,6 +587,24 @@ class BanchoLobby(AsyncIOEventEmitter):
 
     async def update_settings(self) -> None:
         await self._send_command("settings")
+
+    async def fetch_settings(self, timeout: float = 10) -> list[BanchoLobbyPlayer | None]:
+        import asyncio
+        future: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+        
+        def on_settings_ready() -> None:
+            if not future.done():
+                future.set_result(None)
+
+        self.on("settingsReady", on_settings_ready)
+        await self.update_settings()
+        
+        try:
+            await asyncio.wait_for(future, timeout=timeout)
+        finally:
+            self.remove_listener("settingsReady", on_settings_ready)
+            
+        return list(self.slots)
 
     async def close_lobby(self) -> None:
         await self._send_command("close")
