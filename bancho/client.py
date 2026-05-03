@@ -281,7 +281,7 @@ class BanchoClient(AsyncIOEventEmitter):
     async def part_channel(self, name: str) -> None:
         await self._send_raw(f"PART {name}")
 
-    async def make_lobby(self, name: str, timeout: float = 10) -> BanchoLobby:
+    async def make_lobby(self, name: str, private: bool = False, timeout: float = 10) -> BanchoLobby:
         from .lobby import BanchoLobby
 
         future: asyncio.Future[tuple[int, str]] = asyncio.get_event_loop().create_future()
@@ -298,7 +298,8 @@ class BanchoClient(AsyncIOEventEmitter):
                 future.set_result((int(m.group(1)), m.group(2)))
 
         self.on("PM", on_pm)
-        await self.send_message("BanchoBot", f"!mp make {name}")
+        cmd = f"!mp makeprivate {name}" if private else f"!mp make {name}"
+        await self.send_message("BanchoBot", cmd)
 
         try:
             lobby_id, lobby_name = await asyncio.wait_for(future, timeout=timeout)
